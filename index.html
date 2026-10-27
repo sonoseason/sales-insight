@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <style>:root{color-scheme:light}body{margin:0;font-size:14px}[hidden]{display:none!important}img{max-width:100%}</style>
-<title>매출 인사이트</title>
+<title>매출 인사이트 · 간결한 분석</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -88,6 +88,17 @@ details.map[open]>summary::before{content:"▾"}
 .mapgrid select{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0;width:100%}
 .chk{display:inline-flex;gap:8px;align-items:center;font-size:13px}
 
+/* compact controls */
+.filters{border-block:0!important;padding:0!important;gap:10px 18px!important}
+.filter-main{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:flex-end;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.filter-extra{border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.filter-extra>summary{padding:11px 15px;cursor:pointer;color:var(--ink2);font-weight:600}
+.filter-extra .extra-body{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;padding:14px;border-top:1px solid var(--line)}
+.audit-details{border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:13px}
+.audit-details>summary{cursor:pointer;padding:10px 13px;font-weight:600}
+.audit-details .audit-body{padding:0 13px 12px;color:var(--ink2);line-height:1.7}
+.mvv{flex-direction:column;align-items:flex-end;gap:1px!important}
+.mvv .contrib{font-weight:500;font-size:11px;color:var(--muted)}
 /* filters */
 .filters{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;padding:14px 0;border-block:1px solid var(--line)}
 .fg{display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -209,6 +220,7 @@ th.sum{border-left:1px solid var(--grid)}
 
     <div id="results" style="display:flex;flex-direction:column;gap:20px;margin-top:20px">
       <div class="filters" id="filters">
+        <div class="filter-main" id="primaryFilters">
         <div class="fg"><span class="lbl">집계 기준</span>
           <div class="seg" role="group" aria-label="집계 기준">
             <button type="button" data-seg="by" data-v="product" aria-pressed="true">제품별</button>
@@ -238,7 +250,8 @@ th.sum{border-left:1px solid var(--grid)}
          <div class="fg" id="catWrap"><label for="catSel">카테고리</label><select id="catSel"></select></div>
         <div class="fg"><span class="lbl">비교 방식</span>
           <div class="seg" role="group" aria-label="비교 방식">
-            <button type="button" data-seg="cmpMode" data-v="month" aria-pressed="true">월 vs 전월</button>
+            <button type="button" data-seg="cmpMode" data-v="month" aria-pressed="true">전월 대비</button>
+            <button type="button" data-seg="cmpMode" data-v="yoy" aria-pressed="false">전년 동기</button>
             <button type="button" data-seg="cmpMode" data-v="custom" aria-pressed="false">기간 직접 선택</button>
           </div></div>
         <div class="fg" id="cmWrap"><label for="cmSel">기준월</label><select id="cmSel"></select></div>
@@ -250,11 +263,13 @@ th.sum{border-left:1px solid var(--grid)}
         <div class="fg" id="dedupeWrap" hidden><span class="lbl">중복</span>
           <label class="chk"><input type="checkbox" id="dedupe" checked> 같은 주문 행 한 번만 계산</label></div>
         <div class="fg" id="statusWrap" hidden><span class="lbl">주문상태 (눌러서 제외/포함)</span><div class="stat-chips" id="statChips"></div></div>
+        </div>
+        <details class="filter-extra" id="extraFilters"><summary>상세 필터 · 조직 / 판매유형 / 청구유형 / 데이터 설정</summary><div class="extra-body" id="advancedFilters"></div></details>
       </div>
 
       <p class="headline" id="headline"></p>
       <div id="partialNote" class="notice" hidden></div>
-       <div class="notice" id="auditNote"></div>
+       <details class="audit-details" id="auditDetails"><summary id="auditSummary">데이터 검증 결과</summary><div class="audit-body" id="auditNote"></div></details>
       <div class="kpis" id="kpis"></div>
 
       <div class="cols">
@@ -508,6 +523,7 @@ function aggRange(a,b){
 }
 function cmpDef(){
   const F=S.f;
+  if(F.cmpMode==='yoy'){const A=monthRange(F.cm),B=monthRange(F.cm-12);return {A,B,la:label(F.cm),lb:label(F.cm-12),kind:'yoy',bn:'전년 동기'};}
   if(F.cmpMode==='custom'&&F.A&&F.B)return {A:F.A,B:F.B,la:dkLabel(F.A[0])+' ~ '+dkLabel(F.A[1]),lb:dkLabel(F.B[0])+' ~ '+dkLabel(F.B[1]),kind:'custom',bn:'비교 기간'};
   return {A:monthRange(F.cm),B:monthRange(F.cm-1),la:label(F.cm),lb:label(F.cm-1),kind:'month',bn:'전월'};
 }
@@ -560,6 +576,8 @@ function renderAll(){
   if(S.bad)note.push(`날짜나 숫자를 읽지 못한 ${S.bad.toLocaleString()}행은 제외했습니다(합계 줄 등).`);
   if(S.summarySkipped)note.push(`중복 집계를 막기 위해 판매분석의 전체/기간합계 ${S.summarySkipped.toLocaleString()}행을 제외했습니다.`);
    if(S.dup)note.push(`겹치는 ${S.dup.toLocaleString()}행은 중복으로 보고 한 번만 계산했습니다.`);
+  $('auditSummary').textContent=`데이터 검증 · 분석 ${S.norm.length.toLocaleString()}행${S.bad+S.summarySkipped+S.dup?' / 제외 '+(S.bad+S.summarySkipped+S.dup).toLocaleString()+'행':' / 제외 0행'}`;
+  $('auditDetails').open=!!(S.bad||S.dup);
   $('auditNote').textContent=`파일 유형: ${S.dataTypes.map(x=>({smartstore:'네이버 상품별 판매집계',billing:'청구·매출 상세',orders:'일반 주문행'}[x])).join(' + ')} · 분석 대상 ${S.norm.length.toLocaleString()}행 · 제외: 날짜/숫자 오류 ${S.bad.toLocaleString()}행, 합계 행 ${S.summarySkipped.toLocaleString()}행, 중복 ${S.dup.toLocaleString()}행 · 기준 금액 열은 [열 인식 결과]에서 확인하세요. ${S.dataTypes.includes('billing')?'청구형 파일에서는 주문번호가 반복되는 것이 정상이며 행 수를 주문 건수로 해석하지 마세요. ':''}${S.dataTypes.includes('smartstore')?'네이버 파일의 결제건수는 상품별 결제건수 합계이며 실제 고유 주문 수와 다를 수 있습니다.':''}`;
    $('msg').innerHTML=(S.sample?'<div class="notice">지금 보이는 숫자는 체험용 샘플 데이터입니다. 실제 파일을 올리면 바뀝니다.</div>':'')+note.map(t=>`<div class="notice">${esc(t)}</div>`).join('');
   prepFilters();renderResults();
@@ -640,7 +658,7 @@ function updateOrgSum(){
 }
 function applyCmpUI(){
   const F=S.f;
-  $('cmWrap').hidden=F.cmpMode!=='month';$('customWrap').hidden=F.cmpMode!=='custom';
+  $('cmWrap').hidden=F.cmpMode==='custom';$('customWrap').hidden=F.cmpMode!=='custom';
   if(F.A&&F.B){$('aFrom').value=dkStr(F.A[0]);$('aTo').value=dkStr(F.A[1]);$('bFrom').value=dkStr(F.B[0]);$('bTo').value=dkStr(F.B[1])}
 }
 function syncSegs(){
@@ -663,7 +681,7 @@ function drawHeadline(R){
   const met=R.met,cd=R.cd,cur=R.aA.tot[met],prev=R.aB.tot[met],hasB=orders(R.aB.tot)>0;
   const noun=byName();
   let h=`<b>${esc(cd.la)}</b> ${mname()}은 <b>${met==='amt'?big(cur):full(cur)}${unit()}</b>`;
-  const ref=cd.kind==='month'?'전월':`비교 기간(${esc(cd.lb)})`;
+  const ref=cd.kind==='month'?'전월':cd.kind==='yoy'?'전년 동기':`비교 기간(${esc(cd.lb)})`;
   if(hasB){
     const i=pinfo(cur,prev);
     if(i.t==='up')h+=`으로 ${ref}보다 <b>${(i.p*100).toFixed(1)}% 늘었습니다</b>.`;
@@ -676,11 +694,12 @@ function drawHeadline(R){
     if(up)bits.push(`가장 크게 늘어난 ${noun}은 <b>${esc(up.name)}</b>(${sign(up.delta)}${unit()})`);
     if(dn)bits.push(`가장 크게 줄어든 ${noun}은 <b>${esc(dn.name)}</b>(${sign(dn.delta)}${unit()})`);
     if(bits.length)h+=' '+bits.join(', ')+'입니다.';
-  }else h+=`입니다. ${cd.kind==='month'?'전월':'비교 기간'} 데이터가 없어 증감은 계산하지 못했습니다.`;
+  }else h+=`입니다. ${cd.kind==='month'?'전월':cd.kind==='yoy'?'전년 동기':'비교 기간'} 데이터가 없어 증감은 계산하지 못했습니다.`;
   $('headline').innerHTML=h;
   const notes=[];
-  if(cd.kind==='month'){
-    [S.f.cm,S.f.cm-1].forEach(mi=>{const p=partial(mi);if(p)notes.push(`${label(mi)}은 ${p}의 데이터만 있어서 비교 결과가 실제와 다르게 보일 수 있습니다.`)});
+  if(cd.kind==='month'||cd.kind==='yoy'){
+    if(cd.kind==='yoy' && cd.B[1]<S.minDk)notes.push('전년 동기 데이터가 업로드되지 않아 증감률을 계산할 수 없습니다.');
+    [S.f.cm,S.f.cm-(cd.kind==='yoy'?12:1)].forEach(mi=>{const p=partial(mi);if(p)notes.push(`${label(mi)}은 ${p}의 데이터만 있어서 비교 결과가 실제와 다르게 보일 수 있습니다.`)});
   }else{
     [['기준 기간',R.aA],['비교 기간',R.aB]].forEach(([n,x])=>{if(x.a<S.minDk||x.b>S.maxDk)notes.push(`${n}에 업로드한 데이터가 없는 구간이 있습니다. 올린 데이터는 ${dkLabel(S.minDk)} ~ ${dkLabel(S.maxDk)}입니다.`)});
     if(R.aA.days!==R.aB.days){
@@ -759,7 +778,9 @@ function drawMovers(R){
   const up=all.filter(g=>g.delta>0).sort((a,b)=>b.delta-a.delta).slice(0,5);
   const dn=all.filter(g=>g.delta<0).sort((a,b)=>a.delta-b.delta).slice(0,5);
   const mx=Math.max(1,...up.map(g=>g.delta),...dn.map(g=>-g.delta));
-  const li=g=>`<li><span class="nm" title="${esc(g.name)}">${esc(g.name)}</span><span class="bar"><i style="width:${Math.max(3,Math.abs(g.delta)/mx*100).toFixed(1)}%"></i></span><span class="mvv"><span>${sign(g.delta)}${unit()}</span>${dspan(pinfo(g.cur,g.prev))}</span></li>`;
+  const totalDelta=R.aA.tot[R.met]-R.aB.tot[R.met];
+  const li=g=>{const ratio=totalDelta!==0&&Math.sign(totalDelta)===Math.sign(g.delta)&&Math.abs(totalDelta)>=Math.max(1,Math.abs(R.aB.tot[R.met])*0.005)?`<span class="contrib" title="전체 순증감액에서 해당 항목의 증감액이 차지하는 비율. 상쇄 효과로 100%를 넘을 수 있습니다.">전체 증감 기여 ${Math.abs(g.delta/totalDelta*100).toFixed(1)}%</span>`:'';
+    return `<li><span class="nm" title="${esc(g.name)}">${esc(g.name)}</span><span class="bar"><i style="width:${Math.max(3,Math.abs(g.delta)/mx*100).toFixed(1)}%"></i></span><span class="mvv"><span>${sign(g.delta)}${unit()}</span>${dspan(pinfo(g.cur,g.prev))}${ratio}</span></li>`};
   const col=(t,a)=>`<div><h3>${t}</h3><ol>${a.length?a.map(li).join(''):'<li class="empty-li">해당 없음</li>'}</ol></div>`;
   $('movers').innerHTML=col('늘어난 항목',up)+col('줄어든 항목',dn);
 }
@@ -942,6 +963,11 @@ function sample(){
   S.f.from=S.f.to=S.f.cm=null;S.f.A=S.f.B=null;S.f.by='product';S.f.metric='amt';
   normalize();renderAll();
 }
+
+/* 화면에는 자주 사용하는 조건만 노출; DOM 원위치 유지로 기존 이벤트 연동 보존 */
+['orgWrap','splitWrap','saleWrap','billWrap','catWrap','dedupeWrap','statusWrap'].forEach(id=>{
+  const el=$(id);if(el)$('advancedFilters').appendChild(el);
+});
 
 /* ---------- 이벤트 ---------- */
 const drop=$('drop');
