@@ -182,13 +182,13 @@ th.sum{border-left:1px solid var(--grid)}
 <main class="wrap">
   <header>
     <h1>매출 인사이트</h1>
-    <p class="sub">주문내역 엑셀을 올리면 월별·제품별·카테고리별 판매수량과 매출 증감을 바로 계산합니다. 파일은 이 브라우저 안에서만 처리되고 어디에도 전송되지 않습니다.</p>
+    <p class="sub">엑셀(.xlsx/.csv)을 올려 월별·제품별·카테고리별 매출을 비교합니다. 네이버 판매분석과 청구·매출 상세 파일을 구분해 집계합니다. 파일 데이터는 이 브라우저에서 계산되며, 본 페이지 코드에는 업로드 서버 전송 기능이 없습니다. 외부 CDN 라이브러리를 사용합니다.</p>
   </header>
 
   <section id="upload">
     <label class="drop" id="drop" for="file">
       <b>주문내역 파일을 끌어다 놓거나 클릭해서 선택</b>
-      <span class="small long">.xlsx · .xls · .csv, 여러 파일을 한 번에 올릴 수 있습니다. 필요한 열은 주문일, 제품명(또는 카테고리), 수량, 금액이고 주문번호·주문상태 열이 있으면 중복과 취소 건을 걸러냅니다. 열 이름은 자동으로 인식하고, 틀리면 직접 고를 수 있습니다.</span>
+      <span class="small long">.xlsx · .xls · .csv, 여러 파일을 한 번에 올릴 수 있습니다. 기준일, 품목명(또는 카테고리), 금액 또는 수량 열을 자동 인식합니다. 네이버 판매분석의 합계 행을 제외하고 청구형 파일의 반복 주문번호를 유지합니다. 열 이름은 자동으로 인식하고, 틀리면 직접 고를 수 있습니다.</span>
       <input id="file" type="file" accept=".xlsx,.xls,.csv,.txt" multiple>
       <span class="upload-row">
         <span class="btn primary" aria-hidden="true">파일 선택</span>
@@ -234,7 +234,8 @@ th.sum{border-left:1px solid var(--grid)}
             <button type="button" data-seg="st" data-v="일시불" aria-pressed="false">일시불</button>
           </div><label class="chk"><input type="checkbox" id="splitSale"> 제품·조직도 렌탈/일시불로 나눠서 보기</label></div>
           <span class="small" id="saleNote"></span></div>
-        <div class="fg" id="catWrap"><label for="catSel">카테고리</label><select id="catSel"></select></div>
+        <div class="fg" id="billWrap" hidden><span class="lbl">청구유형 (클릭하여 포함/제외)</span><div class="stat-chips" id="billChips"></div></div>
+         <div class="fg" id="catWrap"><label for="catSel">카테고리</label><select id="catSel"></select></div>
         <div class="fg"><span class="lbl">비교 방식</span>
           <div class="seg" role="group" aria-label="비교 방식">
             <button type="button" data-seg="cmpMode" data-v="month" aria-pressed="true">월 vs 전월</button>
@@ -253,6 +254,7 @@ th.sum{border-left:1px solid var(--grid)}
 
       <p class="headline" id="headline"></p>
       <div id="partialNote" class="notice" hidden></div>
+       <div class="notice" id="auditNote"></div>
       <div class="kpis" id="kpis"></div>
 
       <div class="cols">
@@ -305,15 +307,17 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 
 /* ---------- 열 인식 ---------- */
 const FIELDS=[
- {k:'date',label:'주문일',req:true,hint:'날짜/일시',kw:['주문일시','주문일자','주문일','결제일시','결제일','주문시간','일자','날짜','orderdate','date','createdat','created'],ex:[]},
- {k:'product',label:'제품명',hint:'제품명 또는 카테고리 중 하나는 필요',kw:['상품명','제품명','품목명','품명','상품','제품','품목','product','item','name'],ex:['번호','코드','id','수량','금액','가격','분류','카테고리','상태','일시','일자','수취','받는','구매자','주문자','배송','category']},
- {k:'category',label:'카테고리',hint:'분류 열',kw:['카테고리','대분류','상품분류','품목분류','분류','category'],ex:[]},
+ {k:'date',label:'기준일',req:true,hint:'주문일/매출일/통계 날짜',kw:['매출일자','매출일','주문일시','주문일자','주문일','결제일시','결제일','주문시간','일자','날짜','orderdate','date','createdat','created'],ex:[]},
+ {k:'product',label:'제품명',hint:'제품명 또는 카테고리 중 하나는 필요',kw:['채널상품명','품목명','상품명','제품명','품목명','품명','상품','제품','품목','product','item','name'],ex:['번호','코드','id','수량','금액','가격','분류','카테고리','상태','일시','일자','수취','받는','구매자','주문자','배송','category']},
+ {k:'category',label:'카테고리',hint:'분류 열',kw:['중분류','카테고리','대분류','상품분류','품목분류','분류','category'],ex:[]},
  {k:'org',label:'상위조직명',hint:'조직별로 구분해서 볼 때',kw:['상위조직명','상위조직','상위부서','조직명','조직','부서','거래처','고객사','지점','department','team','org'],ex:['번호','코드']},
- {k:'qty',label:'수량',hint:'없으면 1건=1개로 계산',kw:['주문수량','판매수량','수량','qty','quantity','개수'],ex:['금액','가격','단가']},
- {k:'amt',label:'매출 금액',hint:'결제금액 등',kw:['결제금액','실결제','판매금액','매출액','매출','주문금액','상품금액','총금액','합계','금액','amount','total','sales','revenue'],ex:['단가','할인','배송','쿠폰','수수료','원가','수량','포인트','적립','번호','일시','일자']},
+ {k:'qty',label:'수량',hint:'없으면 1건=1개로 계산',kw:['결제상품수량','주문수량','판매수량','수량','qty','quantity','개수'],ex:['금액','가격','단가']},
+ {k:'amt',label:'매출 금액',hint:'결제금액 등',kw:['판매금액(순)','매출금액','결제금액','실결제','판매금액','매출액','매출','주문금액','상품금액','총금액','합계','금액','amount','total','sales','revenue'],ex:['단가','할인','배송','쿠폰','수수료','원가','수량','포인트','적립','번호','일시','일자']},
  {k:'orderNo',label:'주문번호',hint:'겹치는 파일의 중복 제거용',kw:['주문번호','주문id','주문코드','orderno','orderid','ordernumber','order'],ex:[]},
- {k:'sale',label:'판매유형',hint:'렌탈/일시불 구분용',kw:['판매유형','판매구분','판매형태','판매방식','거래유형','계약유형','결제유형','주문유형','saletype'],ex:[]},
- {k:'status',label:'주문상태',hint:'취소·환불 제외용',kw:['주문상태','처리상태','진행상태','클레임','상태','status'],ex:[]}
+ {k:'sale',label:'판매유형',hint:'렌탈/일시불 구분용',kw:['판매유형명','판매유형','판매구분','판매형태','판매방식','거래유형','계약유형','결제유형','주문유형','saletype'],ex:[]},
+ {k:'status',label:'상태',hint:'취소·환불 제외용. 계약 상태는 자동 제외하지 않습니다.',kw:['주문상태','처리상태','진행상태','클레임','계약상태','상태','status'],ex:[]},
+ {k:'billType',label:'청구유형',hint:'렌탈료, 연체이자, 일시불판매대금 등',kw:['청구유형명','청구유형','청구항목'],ex:[]},
+ {k:'orderCount',label:'결제건수',hint:'집계형 판매분석의 상품결제건수',kw:['상품결제건수','결제건수'],ex:[]}
 ];
 const norm=s=>String(s==null?'':s).toLowerCase().replace(/[\s_\-()\[\]\/]/g,'');
 function headerRow(rows){
@@ -346,12 +350,12 @@ const mappingOk=m=>m.date>=0&&(m.product>=0||m.category>=0)&&(m.qty>=0||m.amt>=0
 
 /* ---------- 상태 ---------- */
 const S={sources:[],sigs:[],groups:{},norm:[],cov:new Map(),minMi:0,maxMi:0,bad:0,dup:0,
-  statusOff:new Set(),statuses:[],hasAmt:true,hasCat:false,hasProd:true,hasOrderNo:false,hasStatus:false,hasOrg:false,hasSale:false,saleVals:[],rentalSet:new Set(),minDk:0,maxDk:0,
+  statusOff:new Set(),statuses:[],hasAmt:true,hasQty:false,hasCat:false,hasProd:true,hasOrderNo:false,hasStatus:false,hasOrg:false,hasSale:false,hasBill:false,hasOrderCount:false,billVals:[],billOff:new Set(),saleVals:[],rentalSet:new Set(),minDk:0,maxDk:0,summarySkipped:0,dataTypes:[],
   f:{by:'product',metric:'amt',cat:'',orgs:new Set(),split:false,splitSale:false,st:'',cmpMode:'month',A:null,B:null,from:null,to:null,cm:null,mode:'val',q:'',sort:'total',dedupe:true,showAll:false},R:null};
 
 const CANCEL=/취소|환불|반품|cancel|refund|return/i;
 const RENTAL=/금융리스|렌탈|구독/;
-const stype=r=>S.rentalSet.has(r.sale)?'렌탈':'일시불';
+const stype=r=>!r.sale?'미분류':S.rentalSet.has(r.sale)?'렌탈':/일시불|즉시판매|카드할부|일반구매/.test(r.sale)?'일시불':'미분류';
 const hashSig=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36)};
 function loadMap(sig){try{const v=localStorage.getItem('smap:'+hashSig(sig));return v?JSON.parse(v):null}catch(e){return null}}
 function saveMap(sig,g){try{localStorage.setItem('smap:'+hashSig(sig),JSON.stringify(g))}catch(e){}}
@@ -359,7 +363,7 @@ function saveMap(sig,g){try{localStorage.setItem('smap:'+hashSig(sig),JSON.strin
 /* ---------- 파싱 ---------- */
 function parseDate(v){
   if(v instanceof Date){if(isNaN(v))return null;const d=new Date(v.getTime()+30000);return {y:d.getFullYear(),mo:d.getMonth()+1,day:d.getDate()}}
-  const ok=(y,mo,d)=>(y>=1990&&y<=2100&&mo>=1&&mo<=12&&d>=1&&d<=31)?{y,mo,day:d}:null;
+  const ok=(y,mo,d)=>{if(y<1990||y>2100||mo<1||mo>12||d<1||d>31)return null;const x=new Date(Date.UTC(y,mo-1,d));return x.getUTCFullYear()===y&&x.getUTCMonth()+1===mo&&x.getUTCDate()===d?{y,mo,day:d}:null};
   if(typeof v==='number'){
     if(Number.isInteger(v)&&v>19900101&&v<21001231)return ok(Math.floor(v/10000),Math.floor(v/100)%100,v%100);
     if(v>20000&&v<80000){const d=new Date(Math.round((v-25569)*86400000));return ok(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate())}
@@ -390,22 +394,24 @@ async function readFile(file){
     if(rows.length<2)continue;
     const hi=headerRow(rows);
     const headers=rows[hi].map(v=>String(v==null?'':v).trim());
-    out.push({label:file.name+(wb.SheetNames.length>1?' · '+name:''),file:file.name,size:file.size,headers,body:rows.slice(hi+1),sig:headers.join('|')});
+    const n=headers.map(norm);const kind=n.includes('채널상품명')&&n.includes('판매금액(순)')?'smartstore':n.includes('청구유형명')&&n.includes('매출일자')?'billing':'orders';
+    out.push({label:file.name+(wb.SheetNames.length>1?' · '+name:''),file:file.name,size:file.size,headers,body:rows.slice(hi+1),sig:headers.join('|'),kind});
   }
   return out;
 }
 
 /* ---------- 정규화 ---------- */
 function normalize(){
-  const out=[],seen=new Map(),cov=new Map();let bad=0,dup=0,si=0;
-  S.hasAmt=false;S.hasCat=false;S.hasProd=false;S.hasOrderNo=false;S.hasStatus=false;S.hasOrg=false;S.hasSale=false;
+  const out=[],seen=new Map(),cov=new Map();let bad=0,dup=0,si=0,summarySkipped=0;
+  S.hasAmt=false;S.hasQty=false;S.hasCat=false;S.hasProd=false;S.hasOrderNo=false;S.hasStatus=false;S.hasOrg=false;S.hasSale=false;S.hasBill=false;S.hasOrderCount=false;S.dataTypes=[...new Set(S.sources.map(x=>x.kind||'orders'))];
   for(const src of S.sources){
     si++;
     const g=S.groups[src.sig],m=g.map;
     if(!mappingOk(m))continue;
-    if(m.amt>=0)S.hasAmt=true;if(m.category>=0)S.hasCat=true;if(m.product>=0)S.hasProd=true;
+    if(m.amt>=0)S.hasAmt=true;if(m.qty>=0)S.hasQty=true;if(m.billType>=0)S.hasBill=true;if(m.orderCount>=0)S.hasOrderCount=true;if(m.category>=0)S.hasCat=true;if(m.product>=0)S.hasProd=true;
     if(m.org>=0)S.hasOrg=true;if(m.sale>=0)S.hasSale=true;if(m.orderNo>=0)S.hasOrderNo=true;if(m.status>=0)S.hasStatus=true;
     for(const r of src.body){
+      if(src.kind==='smartstore'&&(String(r[m.product]||'').trim()==='전체'||/^\d{4}-\d{2}-\d{2}\s*~/.test(String(r[m.date]||'')))){summarySkipped++;continue}
       const d=parseDate(r[m.date]);
       if(!d){bad++;continue}
       const qty=m.qty>=0?num(r[m.qty]):1;
@@ -418,25 +424,30 @@ function normalize(){
       const sale=m.sale>=0?String(r[m.sale]).trim():'';
       const orderNo=m.orderNo>=0?String(r[m.orderNo]).trim():'';
       const status=m.status>=0?String(r[m.status]).trim():'';
-      if(S.f.dedupe&&orderNo){
+      const billType=m.billType>=0?String(r[m.billType]).trim():'';
+      const orderCount=m.orderCount>=0?num(r[m.orderCount]):null;
+      if(orderCount!==null&&!Number.isFinite(orderCount)){bad++;continue}
+      if(S.f.dedupe&&src.kind==='orders'&&orderNo){
         const key=[orderNo,org,sale,product,category,qty,amt,d.y,d.mo,d.day].join('\u0001');
         if(seen.has(key)&&seen.get(key)!==si){dup++;continue}
         seen.set(key,si);
       }
       const mi=d.y*12+d.mo-1;
-      out.push({mi,dk:d.y*10000+d.mo*100+d.day,day:d.day,product,category,org,sale,qty,amt,orderNo,status});
+      out.push({mi,dk:d.y*10000+d.mo*100+d.day,day:d.day,product,category,org,sale,qty,amt,orderNo,status,billType,orderCount,kind:src.kind||'orders'});
       const c=cov.get(mi);
       if(!c)cov.set(mi,{min:d.day,max:d.day});else{if(d.day<c.min)c.min=d.day;if(d.day>c.max)c.max=d.day}
     }
   }
-  S.norm=out;S.cov=cov;S.bad=bad;S.dup=dup;
+  S.norm=out;S.cov=cov;S.bad=bad;S.dup=dup;S.summarySkipped=summarySkipped;
   if(out.length){S.minMi=Math.min(...cov.keys());S.maxMi=Math.max(...cov.keys());let a=Infinity,b=0;for(const r of out){if(r.dk<a)a=r.dk;if(r.dk>b)b=r.dk}S.minDk=a;S.maxDk=b}
   const cnt=new Map();out.forEach(r=>{if(r.status)cnt.set(r.status,(cnt.get(r.status)||0)+1)});
   S.statuses=[...cnt].sort((a,b)=>b[1]-a[1]);
   S.statusOff=new Set(S.statuses.map(s=>s[0]).filter(s=>CANCEL.test(s)));
   const sc=new Map();out.forEach(r=>sc.set(r.sale,(sc.get(r.sale)||0)+1));
   S.saleVals=[...sc].sort((a,b)=>b[1]-a[1]);
-  S.rentalSet=new Set(S.saleVals.map(x=>x[0]).filter(v=>RENTAL.test(v)));
+  const priorRental=S.rentalSet;S.rentalSet=new Set(S.saleVals.map(x=>x[0]).filter(v=>priorRental.has(v)||RENTAL.test(v)));
+   const bc=new Map();out.forEach(r=>{if(r.billType)bc.set(r.billType,(bc.get(r.billType)||0)+1)});S.billVals=[...bc].sort((a,b)=>b[1]-a[1]);
+   S.billOff=new Set([...S.billOff].filter(v=>bc.has(v)));
 }
 
 /* ---------- 포맷 ---------- */
@@ -484,14 +495,14 @@ const dkLabel=d=>dkY(d)+'.'+String(dkM(d)).padStart(2,'0')+'.'+String(dkD(d)).pa
 const strDk=v=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v);return m?mkDk(+m[1],+m[2],+m[3]):null};
 const monthRange=mi=>[mkDk(Math.floor(mi/12),mi%12+1,1),mkDk(Math.floor(mi/12),mi%12+1,dim(mi))];
 function gkey(r){const F=S.f;const b=F.by==='category'?r.category:F.by==='org'?r.org:F.by==='sale'?stype(r):r.product;const p=[];if(F.split&&F.by!=='org'&&S.hasOrg)p.push(r.org);if(F.splitSale&&F.by!=='sale'&&S.hasSale)p.push(stype(r));p.push(b);return p.length>1?p.join(' · '):b}
-function passes(r){const F=S.f;return !S.statusOff.has(r.status)&&(!F.cat||r.category===F.cat)&&(F.orgs.size===0||F.orgs.has(r.org))&&(!F.st||stype(r)===F.st)}
+function passes(r){const F=S.f;return !S.statusOff.has(r.status)&&!S.billOff.has(r.billType)&&(!F.cat||r.category===F.cat)&&(F.orgs.size===0||F.orgs.has(r.org))&&(!F.st||stype(r)===F.st)}
 function aggRange(a,b){
-  const g=new Map(),tot={qty:0,amt:0,o:new Set(),n:0};
+  const g=new Map(),tot={qty:0,amt:0,o:new Set(),n:0,oc:0};
   for(const r of S.norm){
     if(r.dk<a||r.dk>b||!passes(r))continue;
     const k=gkey(r);let c=g.get(k);if(!c){c={qty:0,amt:0};g.set(k,c)}
     c.qty+=r.qty;c.amt+=r.amt;tot.qty+=r.qty;tot.amt+=r.amt;
-    if(r.orderNo)tot.o.add(r.orderNo);else tot.n++;
+    if(r.orderCount!==null)tot.oc+=r.orderCount;else if(r.orderNo)tot.o.add(r.orderNo);else tot.n++;
   }
   return {g,tot,days:daysIn(a,b),a,b};
 }
@@ -514,7 +525,7 @@ function compute(){
     c.qty+=r.qty;c.amt+=r.amt;
     let t=mt.get(r.mi);if(!t){t={qty:0,amt:0,o:new Set(),n:0};mt.set(r.mi,t)}
     t.qty+=r.qty;t.amt+=r.amt;
-    if(r.orderNo)t.o.add(r.orderNo);else t.n++;
+    if(r.orderCount!==null)t.oc=(t.oc||0)+r.orderCount;else if(r.orderNo)t.o.add(r.orderNo);else t.n++;
   }
   const months=[];for(let mi=F.from;mi<=F.to;mi++)months.push(mi);
   const val=c=>c?c[met]:0;
@@ -528,7 +539,7 @@ function compute(){
   return {cells,mt,months,groups,cm:F.cm,val,met,cd,aA,aB,aY};
 }
 const tval=(t,met)=>t?t[met]:0;
-const orders=t=>t?(t.o.size+t.n):0;
+const orders=t=>t?(t.oc||0)+t.o.size+t.n:0;
 
 /* ---------- 렌더: 전체 ---------- */
 function renderAll(){
@@ -547,8 +558,10 @@ function renderAll(){
     return;
   }
   if(S.bad)note.push(`날짜나 숫자를 읽지 못한 ${S.bad.toLocaleString()}행은 제외했습니다(합계 줄 등).`);
-  if(S.dup)note.push(`겹치는 ${S.dup.toLocaleString()}행은 중복으로 보고 한 번만 계산했습니다.`);
-  $('msg').innerHTML=(S.sample?'<div class="notice">지금 보이는 숫자는 체험용 샘플 데이터입니다. 실제 파일을 올리면 바뀝니다.</div>':'')+note.map(t=>`<div class="notice">${esc(t)}</div>`).join('');
+  if(S.summarySkipped)note.push(`중복 집계를 막기 위해 판매분석의 전체/기간합계 ${S.summarySkipped.toLocaleString()}행을 제외했습니다.`);
+   if(S.dup)note.push(`겹치는 ${S.dup.toLocaleString()}행은 중복으로 보고 한 번만 계산했습니다.`);
+  $('auditNote').textContent=`파일 유형: ${S.dataTypes.map(x=>({smartstore:'네이버 상품별 판매집계',billing:'청구·매출 상세',orders:'일반 주문행'}[x])).join(' + ')} · 분석 대상 ${S.norm.length.toLocaleString()}행 · 제외: 날짜/숫자 오류 ${S.bad.toLocaleString()}행, 합계 행 ${S.summarySkipped.toLocaleString()}행, 중복 ${S.dup.toLocaleString()}행 · 기준 금액 열은 [열 인식 결과]에서 확인하세요. ${S.dataTypes.includes('billing')?'청구형 파일에서는 주문번호가 반복되는 것이 정상이며 행 수를 주문 건수로 해석하지 마세요. ':''}${S.dataTypes.includes('smartstore')?'네이버 파일의 결제건수는 상품별 결제건수 합계이며 실제 고유 주문 수와 다를 수 있습니다.':''}`;
+   $('msg').innerHTML=(S.sample?'<div class="notice">지금 보이는 숫자는 체험용 샘플 데이터입니다. 실제 파일을 올리면 바뀝니다.</div>':'')+note.map(t=>`<div class="notice">${esc(t)}</div>`).join('');
   prepFilters();renderResults();
 }
 function renderFiles(){
@@ -580,7 +593,7 @@ function prepFilters(){
   if(F.by==='org'&&!S.hasOrg)F.by='product';
   if(F.by==='product'&&!S.hasProd)F.by='category';
   if(F.by==='category'&&!S.hasCat)F.by=S.hasProd?'product':'category';
-  if(!S.hasAmt)F.metric='qty';
+  if(!S.hasAmt)F.metric='qty';else if(!S.hasQty&&F.metric==='qty')F.metric='amt';
   if(F.from==null||F.from<S.minMi||F.from>S.maxMi)F.from=S.minMi;
   if(F.to==null||F.to>S.maxMi||F.to<S.minMi)F.to=S.maxMi;
   if(F.from>F.to)F.from=F.to;
@@ -605,6 +618,8 @@ function prepFilters(){
   applyCmpUI();
     $('splitWrap').hidden=!S.hasOrg||orgs.length<2;$('split').checked=F.split;
   $('catWrap').hidden=!S.hasCat||cats.length<2;
+   $('billWrap').hidden=!S.hasBill;
+   $('billChips').innerHTML=S.billVals.map(([v,n])=>`<button type="button" data-bill="${esc(v)}" aria-pressed="${!S.billOff.has(v)}">${esc(v)} ${n.toLocaleString()}</button>`).join('');
   $('dedupeWrap').hidden=!S.hasOrderNo;$('dedupe').checked=F.dedupe;
   const sw=$('statusWrap');
   sw.hidden=!(S.hasStatus&&S.statuses.length>0&&S.statuses.length<=30);
@@ -634,7 +649,7 @@ function syncSegs(){
     const k=b.dataset.seg,v=b.dataset.v;
     b.setAttribute('aria-pressed',String(F[k]===v));
     if(k==='by')b.disabled=(v==='category'&&!S.hasCat)||(v==='product'&&!S.hasProd)||(v==='org'&&!S.hasOrg)||(v==='sale'&&!S.hasSale);
-    if(k==='metric')b.disabled=(v==='amt'&&!S.hasAmt);
+    if(k==='metric')b.disabled=(v==='amt'&&!S.hasAmt)||(v==='qty'&&!S.hasQty);
   });
   $('sortSel').value=F.sort;
 }
@@ -685,9 +700,9 @@ function drawKpis(R){
   const aov=x=>orders(x)?x.amt/orders(x):0;
   const cards=[];
   if(S.hasAmt)cards.push(kpi('매출',big(A.amt),'원',A.amt,B.amt,Y.amt,hb,hy,bn));
-  cards.push(kpi('판매수량',full(A.qty),'개',A.qty,B.qty,Y.qty,hb,hy,bn));
-  cards.push(kpi(S.hasOrderNo?'주문 건수':'주문 행 수',full(orders(A)),'건',orders(A),orders(B),orders(Y),hb,hy,bn));
-  if(S.hasAmt)cards.push(kpi('객단가',full(aov(A)),'원',aov(A),aov(B),aov(Y),hb,hy,bn));
+  if(S.hasQty)cards.push(kpi('판매수량',full(A.qty),'개',A.qty,B.qty,Y.qty,hb,hy,bn));
+  if(!S.dataTypes.includes('billing'))cards.push(kpi(S.hasOrderCount?'상품 결제건수':S.hasOrderNo?'고유 주문번호 수':'주문 행 수',full(orders(A)),'건',orders(A),orders(B),orders(Y),hb,hy,bn));
+  if(S.hasAmt&&!S.dataTypes.includes('billing'))cards.push(kpi(S.hasOrderCount?'상품결제건당 매출':'객단가',full(aov(A)),'원',aov(A),aov(B),aov(Y),hb,hy,bn));
   $('kpis').innerHTML=cards.join('');
 }
 
@@ -777,11 +792,11 @@ function drawTable(R){
   const th=months.map(m=>{const p=partial(m);return `<th title="${p?label(m)+'은 '+p+' 데이터':''}">${label(m)}${p?'*':''}</th>`}).join('');
   const line=(name,getCur,getPrev,hasPrev,total,cls)=>{
     const tds=months.map(m=>{const c=cellFor(mode,getCur(m),getPrev(m),hasPrev(m));return `<td class="${c.z?'z':''}">${c.h}</td>`}).join('');
-    return `<tr class="${cls||''}"><td title="${esc(name)}">${esc(name)}</td>${tds}<td class="sum">${full(total)}</td></tr>`;
+    return `<tr class="${cls||''}"><td title="${esc(name)}">${esc(name)}</td>${tds}<td class="sum">${mode==='val'?full(total):'–'}</td></tr>`;
   };
   let body=line('전체 합계',m=>tval(R.mt.get(m),met),m=>tval(R.mt.get(m-1),met),m=>!!R.mt.get(m-1),months.reduce((s,m)=>s+tval(R.mt.get(m),met),0),'total');
   body+=shown.map(g=>line(g.name,m=>R.val(g.gm.get(m)),m=>R.val(g.gm.get(m-1)),m=>!!R.mt.get(m-1),g.total)).join('');
-  $('tblWrap').innerHTML=`<table><thead><tr><th>${byName()}</th>${th}<th class="sum">합계</th></tr></thead><tbody>${body}</tbody></table>`+
+  $('tblWrap').innerHTML=`<table><thead><tr><th>${byName()}</th>${th}<th class="sum">${mode==='val'?'합계':'기간 값 합계'}</th></tr></thead><tbody>${body}</tbody></table>`+
     (rows.length>shown.length?`<div class="more"><button type="button" class="btn" id="moreBtn">나머지 ${(rows.length-shown.length).toLocaleString()}개 모두 보기</button></div>`:'');
 }
 
@@ -816,14 +831,14 @@ function cmpAOA(R){
 function buildAOA(R,mode){
   if(mode==='cmp')return cmpAOA(R);
   const met=R.met,months=R.months,rows=sortedGroups(R);
-  const head=[byName(),...months.map(label),'합계'];
+  const head=[byName(),...months.map(label),mode==='val'?'합계':'참고: 월별 값 합계'];
   const mk=(name,gc,tot)=>[name,...months.map(m=>{
     const cur=gc(m),prev=gc(m-1);
     if(mode==='val')return cur;
     if(!R.mt.get(m-1))return '';
     if(mode==='delta')return cur-prev;
     const i=pinfo(cur,prev);return i.t==='new'?'신규':i.t==='flat'?0:Math.round(i.p*1000)/10;
-  }),tot];
+  }),mode==='val'?tot:''];
   const out=[head,mk('전체 합계',m=>tval(R.mt.get(m),met),months.reduce((s,m)=>s+tval(R.mt.get(m),met),0))];
   rows.forEach(g=>out.push(mk(g.name,m=>R.val(g.gm.get(m)),g.total)));
   return out;
@@ -870,7 +885,7 @@ async function addFiles(files){
   S.sample=false;
   for(const f of list){
     if(S.sources.some(s=>s.file===f.name&&s.size===f.size)){errs.push(`${f.name}은 이미 추가되어 있습니다.`);continue}
-    try{const srcs=await readFile(f);if(!srcs.length)errs.push(`${f.name}에서 데이터가 있는 시트를 찾지 못했습니다.`);srcs.forEach(registerSource)}
+    try{const srcs=await readFile(f);if(srcs.some(x=>S.sources.length&&S.sources[0].kind!==x.kind)){errs.push(`${f.name}: 서로 다른 유형의 파일은 합산하지 않습니다. 기존 파일을 지우고 따로 분석하세요.`);continue}if(!srcs.length)errs.push(`${f.name}에서 데이터가 있는 시트를 찾지 못했습니다.`);srcs.forEach(registerSource)}
     catch(e){errs.push(`${f.name}을 읽지 못했습니다. 엑셀(.xlsx, .xls) 또는 CSV 파일인지 확인해 주세요.`)}
   }
   S.f.from=S.f.to=S.f.cm=null;S.f.A=S.f.B=null;
@@ -884,7 +899,7 @@ function removeSource(i){
   normalize();renderAll();
 }
 function clearAll(){
-  S.sources=[];S.groups={};S.norm=[];S.sample=false;S.f.from=S.f.to=S.f.cm=null;S.f.A=S.f.B=null;S.f.cat='';S.f.st='';S.f.orgs=new Set();S.f.q='';$('q').value='';
+  S.sources=[];S.groups={};S.norm=[];S.sample=false;S.billOff=new Set();S.rentalSet=new Set();S.f.from=S.f.to=S.f.cm=null;S.f.A=S.f.B=null;S.f.cat='';S.f.st='';S.f.orgs=new Set();S.f.q='';$('q').value='';
   if(ch1){ch1.destroy();ch1=null}if(ch2){ch2.destroy();ch2=null}
   $('file').value='';renderAll();
 }
@@ -921,7 +936,7 @@ function sample(){
   }
   const headers=rows[0];
   S.sources=[];S.groups={};
-  const src={label:'샘플_주문내역.xlsx',file:'sample',size:rows.length,headers,body:rows.slice(1),sig:headers.join('|')};
+  const src={label:'샘플_주문내역.xlsx',file:'sample',size:rows.length,headers,body:rows.slice(1),sig:headers.join('|'),kind:'orders'};
   S.groups[src.sig]={map:automap(headers).map,unit:false};
   S.sources.push(src);S.sample=true;
   S.f.from=S.f.to=S.f.cm=null;S.f.A=S.f.B=null;S.f.by='product';S.f.metric='amt';
@@ -947,6 +962,8 @@ $('mapBody').addEventListener('change',e=>{
 document.addEventListener('click',e=>{
   const sb=e.target.closest('[data-seg]');
   if(sb&&!sb.disabled){S.f[sb.dataset.seg]=sb.dataset.v;syncSegs();applyCmpUI();renderResults();return}
+  const bill=e.target.closest('[data-bill]');
+  if(bill){const v=bill.dataset.bill;S.billOff.has(v)?S.billOff.delete(v):S.billOff.add(v);bill.setAttribute('aria-pressed',String(!S.billOff.has(v)));renderResults();return}
   const sl=e.target.closest('[data-sale]');
   if(sl){const v=sl.dataset.sale;S.rentalSet.has(v)?S.rentalSet.delete(v):S.rentalSet.add(v);sl.setAttribute('aria-pressed',String(S.rentalSet.has(v)));updateSaleNote();renderResults();return}
   const st=e.target.closest('[data-st]');
